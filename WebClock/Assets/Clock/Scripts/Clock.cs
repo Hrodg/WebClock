@@ -2,20 +2,19 @@ using UnityEngine;
 using System.Collections;
 using UnityEngine.Networking;
 using System;
+using TMPro;
 
 public class Clock : MonoBehaviour {
 
+    // Класс для парсинга ответа с TimeZoneDB
     [Serializable]
-    public class YandexTime
+    public class TimeZoneDBResponse
     {
-        public long time;  
-        public Clocks clocks;  
-    }
-
-    [Serializable]
-    public class Clocks
-    {
-        // for future needs
+        public string status;      
+        public string message;     
+        public string countryName; 
+        public string zoneName;    
+        public double timestamp;     
     }
 
     public int seconds = 0;
@@ -28,13 +27,20 @@ public class Clock : MonoBehaviour {
     public GameObject pointerMinutes;
     public GameObject pointerHours;
 
+    public TMP_Text TMP_Text;
+
+    DateTime exactTime;
+
     float msecs = 0;
 
-    string url = "https://yandex.com/time/sync.json";
+    // Ссылка на таймсервер и ключ API
+    string url = "https://api.timezonedb.com/v2.1/get-time-zone?key={0}&format=json&by=zone&zone=UTC";
+    string apiKey = "X00KE51ZO8SC";
 
     void Start()
     {
-        StartCoroutine(ServerConnection());
+        Application.runInBackground = true;
+        StartCoroutine(CheckTimeEveryHour());
     }
 
     void Update()
@@ -46,9 +52,12 @@ public class Clock : MonoBehaviour {
             CalculateTime(msecs);
 
             SetPointers();
+
+            SetTextClock();
         }
     }
 
+    // Внутренний таймер на движение стрелок
     private void CalculateTime(float currentTime)
     {
         if (currentTime >= 1.0f)
@@ -70,6 +79,13 @@ public class Clock : MonoBehaviour {
         }
     }
 
+    // Устанавливаем время на текстовых часах
+    private void SetTextClock()
+    {
+        TMP_Text.text = hour.ToString("D2") + ":" + minutes.ToString("D2") + ":" + seconds.ToString("D2");
+    }
+
+    // Просчитываем поворот и вращаем стрелки
     private void SetPointers()
     {
         float rotationSeconds = (360.0f / 60.0f) * seconds;
@@ -81,9 +97,22 @@ public class Clock : MonoBehaviour {
         pointerHours.transform.localEulerAngles = new Vector3(0.0f, 0.0f, rotationHours);
     }
 
+    // Проверка каждый час
+    private IEnumerator CheckTimeEveryHour()
+    {
+        while (true)
+        {
+            yield return ServerConnection();
+            yield return new WaitForSecondsRealtime(3600f);
+        }
+    }
+
+    // Запрашиваем данные с таймсервера
     private IEnumerator ServerConnection()
     {
-        using (UnityWebRequest webRequest = UnityWebRequest.Get(url))
+        string formattedUrl = string.Format(url, apiKey);
+
+        using (UnityWebRequest webRequest = UnityWebRequest.Get(formattedUrl))
         {
             yield return webRequest.SendWebRequest();
 
@@ -94,24 +123,25 @@ public class Clock : MonoBehaviour {
             else
             {
                 string jsonResponse = webRequest.downloadHandler.text;
-                Debug.Log("Response: " + jsonResponse);
 
                 ParseResponse(jsonResponse);
             }
         }
     }
 
+    // Парсим ответ от таймсервера
     private void ParseResponse(string jsonResponse)
     {
         try
         {
-            var json = JsonUtility.FromJson<YandexTime>(jsonResponse);
+            var json = JsonUtility.FromJson<TimeZoneDBResponse>(jsonResponse);
 
-            DateTime exactTime = UnixTimeStampToDateTime(json.time);
-            Debug.Log("Exact Time from Server: " + exactTime.ToString());
+            exactTime = UnixTimeStampToDateTime(json.timestamp);
+
             seconds = exactTime.Second;
             minutes = exactTime.Minute;
             hour = exactTime.Hour;
+
             isServerConnected = true;
         }
         catch (Exception e)
@@ -120,10 +150,11 @@ public class Clock : MonoBehaviour {
         }
     }
 
-    DateTime UnixTimeStampToDateTime(long unixTimeStamp)
+    // Unix преобразование
+    DateTime UnixTimeStampToDateTime(double unixTimeStamp)
     {
         DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        return epoch.AddMilliseconds(unixTimeStamp).ToLocalTime();
+        return epoch.AddSeconds(unixTimeStamp).ToLocalTime();
     }
 
 }
